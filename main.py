@@ -20,13 +20,13 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
 
-async def ws_conn(ws_conn_url):
+async def ws_conn(ws_conn_url, ws_timeout):
     """
     websocket连接
     """
     async with websockets.legacy.client.connect(ws_conn_url) as websocket:
         try:
-            recv = await asyncio.wait_for(websocket.recv(), get_config()["sms_captcha"]["ws_timeout"])
+            recv = await asyncio.wait_for(websocket.recv(), ws_timeout)
             return recv
         except asyncio.TimeoutError:
             return ""
@@ -66,7 +66,8 @@ class JDMemberCloseAccount(object):
 
         # 初始化selenium配置
         self.browser = get_browser(self.config)
-        self.wait = WebDriverWait(self.browser, self.selenium_cfg["selenium_timeout"])
+        self.wait = WebDriverWait(self.browser, self.selenium_cfg["timeout"])
+        self.wait_check = WebDriverWait(self.browser, self.selenium_cfg["check_wait"])
 
         # 初始化短信验证码配置
         if not self.sms_captcha_cfg["is_ocr"]:
@@ -138,16 +139,16 @@ class JDMemberCloseAccount(object):
         :return: 返回店铺列表
         """
 
-        url = "https://api.m.jd.com/client.action?functionId=getWalletReceivedCardList_New&clientVersion=9.5.2&build" \
-              "=87971&client=android&d_brand=Xiaomi&d_model=M2007J3SC&osVersion=11&screen=2266*1080&partner=xiaomi001" \
-              "&oaid=e02a70327f315862&openudid=3dab9a16bd95e38a&eid=eidA24e181233bsdmxzC3hIpQF2nJhWGGLb" \
-              "%2F1JscxFOzBjvkqrXbFQyAXZmstKs0K6bUwkQ0D3s1%2F7MzLZ7JDdhztfcdZur9xPTxU1ahqtHWYb54%2FyNK&sdkVersion=30" \
-              "&lang=zh_CN&uuid=3dab9a16bd95e38a&aid=3dab9a16bd95e38a&area=13_1000_40488_54442&networkType=wifi" \
-              "&wifiBssid=c609e931512437a8806ae06b86d3977b&uts=0f31TVRjBSsu47QjbY5aZUsO5LYa1B%2F3wqL7JjlFB60vmw6" \
-              "%2F8Xbj74d3sWoT4CTQgX7X0M07W75JvIfz5eu7NxdNJ73NSVbgTHkdsiVZ770PEn0MWPywxr4glUdddS6uxIQ5VfPG65uoUmlB6" \
-              "%2BBwwDqO1Nfxv8%2Bdm15xR%2BFG4fJWb6wCFO7DFMtnoOMo2CQ8mYoECYG3qT%2Bso7P%2FKLgQcg%3D%3D&uemps=0-0&st" \
-              "=1620105615175&sign=65996ece830b41aabdaba32c9d782d07&sv=100"
-        payload = "body=%7B%22v%22%3A%224.1%22%2C%22version%22%3A1580659200%7D&"
+        url = "https://api.m.jd.com/client.action?functionId=getWalletReceivedCardList_New&clientVersion=10.1.4&" \
+              "build=90060&client=android&d_brand=Xiaomi&d_model=M2007J3SC&osVersion=11&screen=2266*1080&" \
+              "partner=xiaomi001&oaid=e02a70327f315862&openudid=3dab9a16bd95e38a&eid=eidA24e181233bsdmxzC3hIpQF2nJh" \
+              "WGGLb%2F1JscxFOzBjvkqrXbFQyAXZmstKs0K6bUwkQ0D3s1%2F7MzLZ7JDdhztfcdZur9xPTxU1ahqtHWYb54%2FyNK&" \
+              "sdkVersion=30&lang=zh_CN&uuid=3dab9a16bd95e38a&aid=3dab9a16bd95e38a&area=13_1000_40491_59669&" \
+              "networkType=wifi&wifiBssid=5c17cbcf50fc7445c661d5ff983be706&uts=0f31TVRjBSv%2Fq885zwC0QPtoV8iFuQOfG" \
+              "tVKIAxAO6aUAj9NI4EYPu%2BJs3H04GllKmmxDKR3Kc4oo%2FatOWpP0CODzovaXjH1t%2Bx8q%2FkNQ6bIjZ2tt1VKtIRjeqPg" \
+              "ppGQ0bis7oW9fXmPxOep38MSmZL9IBs4rqPqBiBvYHPgNP8RZixKe4mePuMSXx2RnT6a%2BbjBA7TCLvXMtoOMpx6X9w%3D%3D&" \
+              "uemps=0-0&harmonyOs=0&st=1632387576221&sign=a81ef4aaa650a55114ddab7b7850e71b&sv=111"
+        payload = "body=%7B%22v%22%3A%224.8%22%2C%22version%22%3A1580659200%7D&"
         headers = {
             'Host': 'api.m.jd.com',
             'cookie': self.config["cookie"],
@@ -270,7 +271,7 @@ class JDMemberCloseAccount(object):
                 else:
                     # 发现第二次缓存，多半是无法注销的店铺
                     try:
-                        INFO("糟糕，这家店铺可能无法注销，该店铺名字为 %s，请先手动跳过" % card_list[len(black_list)]["brandName"])
+                        INFO("糟糕，这家店铺可能无法注销，该店铺名字为 %s，程序自动跳过" % card_list[len(black_list)]["brandName"])
                         disgusting_shop = False
                         if card_list[len(black_list)] in black_list:
                             black_list.append(card_list[len(black_list) + 1])
@@ -326,20 +327,33 @@ class JDMemberCloseAccount(object):
                         pass
 
                     # 检查手机尾号是否正确
+                    phone = self.wait.until(
+                        EC.presence_of_element_located(
+                            (By.XPATH, "//div[text()='手机号']/following-sibling::div[1]")
+                        )
+                    ).text
                     if self.shop_cfg['phone_tail_number'] != "":
-                        if self.wait.until(EC.presence_of_element_located(
-                                (By.XPATH, "//div[@class='cm-ec']")
-                        )).text[-4:] != self.shop_cfg['phone_tail_number']:
-                            INFO("当前店铺手机尾号不是规定的尾号，已跳过")
+                        if phone[-4:] != self.shop_cfg['phone_tail_number']:
+                            INFO("当前店铺绑定手机号为%s，尾号≠配置中设置的尾号，跳过店铺" % phone)
                             continue
+
+                    if "*" not in phone[:4]:
+                        INFO("当前店铺绑定手机号为%s，明显为无效号码，跳过店铺" % phone)
+                        continue
 
                     # 发送短信验证码
                     self.wait.until(EC.presence_of_element_located(
                         (By.XPATH, "//button[text()='发送验证码']")
                     ), "发送短信验证码超时 " + card["brandName"]).click()
 
+                    # 判断是否发送成功，发送失败为黑店，直接跳过
+                    self.wait_check.until(EC.presence_of_element_located(
+                        (By.XPATH, "//div[text()='发送成功']")
+                    ), f'发送失败，黑店【{card["brandName"]}】跳过')
+
                     # 要连接的websocket地址
-                    sms_code, ws_conn_url = "", self.sms_captcha_cfg["ws_conn_url"]
+                    sms_code = ""
+                    ws_conn_url, ws_timeout = self.sms_captcha_cfg["ws_conn_url"], self.sms_captcha_cfg["ws_timeout"]
 
                     # ocr识别投屏验证码
                     if self.sms_captcha_cfg["is_ocr"]:
@@ -364,11 +378,12 @@ class JDMemberCloseAccount(object):
                     else:
                         try:
                             if self.sms_captcha_cfg["jd_wstool"]:
-                                recv = asyncio.get_event_loop().run_until_complete(ws_conn(ws_conn_url))
+                                recv = asyncio.get_event_loop().run_until_complete(ws_conn(ws_conn_url, ws_timeout))
                             else:
-                                recv = self.sms.listener()
+                                recv = self.sms.get_code()
 
                             if recv == "":
+                                cache_card_list = []
                                 INFO("等待websocket推送短信验证码超时，即将跳过", card["brandName"])
                                 continue
                             else:
@@ -488,16 +503,18 @@ class JDMemberCloseAccount(object):
                     if self.image_captcha_cfg["type"] in ["local", "yolov4"]:
                         if not local_auto_identify_captcha_click():
                             INFO("验证码位置点击错误，尝试再试一次")
-                            assert local_auto_identify_captcha_click()
+                            if not local_auto_identify_captcha_click():
+                                INFO("验证码位置点击错误，跳过店铺")
                     else:
                         if not auto_identify_captcha_click():
                             INFO("验证码位置点击错误，尝试再试一次")
-                            assert auto_identify_captcha_click()
+                            if not auto_identify_captcha_click():
+                                INFO("验证码位置点击错误，跳过店铺")
 
                     # 解绑成功页面
-                    self.wait.until(EC.presence_of_element_located(
+                    self.wait_check.until(EC.presence_of_element_located(
                         (By.XPATH, "//div[text()='解绑会员成功']")
-                    ), "图形验证码识别超时 " + card["brandName"])
+                    ), f'解绑失败，黑店【{card["brandName"]}】跳过')
 
                     time.sleep(1)
                     cnt += 1
